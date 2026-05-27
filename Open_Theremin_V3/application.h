@@ -72,6 +72,8 @@ class Application {
     void init_parameters ();
     void set_parameters ();
 
+    void handleMidiInput();
+
 };
 
 #endif // _APPLICATION_H
