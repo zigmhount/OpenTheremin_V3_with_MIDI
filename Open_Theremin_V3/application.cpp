@@ -60,6 +60,8 @@ static uint8_t rod_midi_cc = 255;
 static uint8_t rod_midi_cc_lo = 255; 
 static uint32_t rod_cc_scale = 128;
 
+// MIDI input CC to mute
+#define MIDI_MUTE_CC  120   // Usual CC for "All Sound Off"
 
 // tweakable paramameters
 #define VELOCITY_SENS  9 // How easy it is to reach highest velocity (127). Something betwen 5 and 12.
@@ -626,12 +628,63 @@ void Application::midi_msg_send(uint8_t channel, uint8_t midi_cmd1, uint8_t midi
   Serial.write(midi_value);
 }
 
+// Handle MIDI input
+void Application::handleMidiInput()
+{
+  static uint8_t rx_buf[3];
+  static uint8_t rx_count = 0;
+
+  while (Serial.available() > 0)
+  {
+    uint8_t b = (uint8_t)Serial.read();
+
+    if (b & 0x80)            // Status byte — reset parser (handles running status too)
+    {
+      rx_buf[0] = b;
+      rx_count  = 1;
+    }
+    else if (rx_count > 0)   // Data byte
+    {
+      rx_buf[rx_count++] = b;
+
+      if (rx_count == 3)
+      {
+        rx_count = 0;
+
+        uint8_t status = rx_buf[0];
+        uint8_t data1  = rx_buf[1];
+        uint8_t data2  = rx_buf[2];
+
+        // Match: CC message on the theremin's configured channel
+        if (status == (0xB0 | (midi_channel & 0x0F)) && data1 == MIDI_MUTE_CC)
+        {
+           if (data2 == 0)   // value 0  → mute
+           {
+             _mode      = MUTE;
+             _midistate = MIDI_STOP;
+             HW_LED1_OFF; HW_LED2_ON;
+           }
+           else              // value >0 → unmute
+           {
+             _mode      = NORMAL;
+             _midistate = MIDI_SILENT;
+             HW_LED1_ON;  HW_LED2_OFF;
+           }
+          // -------------------------------------------------------
+        }
+      }
+    }
+  }
+}
+
 // midi_application sends note and volume and uses pitch bend to simulate continuous picth. 
 // Calibrate pitch bend and other parameters accordingly to the receiver synth (see midi_calibrate). 
 // New notes won't be generated as long as pitch bend will do the job. 
 // The bigger is synth's pitch bend range the beter is the effect.  
 void Application::midi_application ()
 {
+  handleMidiInput();
+
   int16_t delta_loop_cc_val = 0; 
   int16_t calculated_velocity = 0;  
   
